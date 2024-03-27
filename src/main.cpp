@@ -14,11 +14,22 @@
 #define DDR &DDRB
 #define TRIGGER_PIN PINB0
 #define ECHO_PIN PINB1
+#define BUTTON PINB2
+
 
 #define MAXDISTANCE 4000 //mm
 #define SPEED .343 //mm per microsecond
 #define TIMEOUT (MAXDISTANCE / SPEED) * 2 ///2 for round trip
 
+
+// Unit types
+enum Unit
+{
+  CM,
+  IN
+};
+
+Unit currentUnit = CM;
 
 // Set the baud rate
 void USART_Init(unsigned int ubrr)
@@ -58,10 +69,9 @@ void txString(char *pStr)
   }
 }
 
+// trigger the ultrasonic sensor
 void PulseTrigger()
 {
-  bitClear(*PORT, TRIGGER_PIN);
-  _delay_us(2);
   bitSet(*PORT, TRIGGER_PIN);
   _delay_us(10);
   bitClear(*PORT, TRIGGER_PIN);
@@ -71,6 +81,7 @@ void USART_Init(unsigned int ubrr);
 void USART_Transmit(unsigned char data);
 void txString(char *pStr);
 
+// get time of ultrasonic sensor
 int Listen()
 {
   int counter = 0;
@@ -79,38 +90,79 @@ int Listen()
    _delay_us(1);
    counter++;
    if (counter > TIMEOUT){
-     return TIMEOUT;
+     return TIMEOUT / 2;
    }
   }
-  return counter;
+  return counter / 2;
 }
 
+// distance of ultrasonic sensor
 double CalculateDistance(int time)
 {
-  return (time * SPEED) / 2;
+  if (currentUnit == CM)
+  {
+    return (time * SPEED);
+  }
+  else
+  {
+    // converts to inches
+    return (time * SPEED * 0.393701);
+  }
 }
+
+// toggles unit between cm and inches
+void ToggleUnit()
+{
+  if (currentUnit == CM)
+  {
+    currentUnit = IN;
+  }
+  else
+  {
+    currentUnit = CM;
+  }
+}
+
 
 int main(void)
 {
   // 1 output, 0 input
   bitSet(*DDR, TRIGGER_PIN);
   bitClear(*DDR, ECHO_PIN);
+  // configure as input
+  bitClear(*DDR, BUTTON);
+    // use internal pull up resistor
+  bitSet(*PORT, BUTTON);
 
   USART_Init(MYUBRR);
   char txBuffer[20];
   while(1)
   {
+    if (!bitRead(PINB, BUTTON))
+    {
+      _delay_ms(50);
+      if (!bitRead(PINB, BUTTON))
+      {
+        ToggleUnit();
+      }
+     
+    }
     PulseTrigger();
     int time = Listen();
     double distance = CalculateDistance(time);
-    // convert to cm
-    distance = distance / 10;
-    dtostrf(distance,0,0,txBuffer);
-
+    dtostrf(distance,0,2,txBuffer);
     // compiler adds null character to end of string
-    txString(">a:");
+    // togggles unit in teleplot
+    if (currentUnit == CM)
+    {
+      txString(">cm:");
+    }
+    else
+    {
+      txString(">in:");
+    }
     txString(txBuffer);
     USART_Transmit('\n');
-    _delay_ms(100);
+    _delay_ms(20);
   }
 }
